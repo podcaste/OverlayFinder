@@ -1,0 +1,169 @@
+
+
+```{r}
+
+# Install the required package if not already installed
+# install.packages("quantmod")
+
+# Load the required library
+library(quantmod)
+
+# Specify the ticker symbol for S&P 500 (SPX)
+ticker <- "^GSPC"
+
+# Set the start and end dates for the data
+start_date <- as.Date("1928-01-01")
+end_date <- Sys.Date()  # Set it to the current date
+
+# Fetch the historical data
+getSymbols(ticker, src = "yahoo", from = start_date, to = end_date)
+
+# Drop unnecessary columns and rename the column
+daily_close <- GSPC[, c("GSPC.Adjusted")]
+colnames(daily_close) <- "Daily_Close"
+
+# Print the modified data
+head(daily_close)
+
+# Parameters for correlation filter and window size
+correlation_threshold <- 0.92
+window_size <- 200
+reference_size <- 200
+
+# Get the last rows from the daily_close data frame for reference
+reference_df <- tail(daily_close, reference_size)
+
+# Print the reference data frame
+print(reference_df)
+
+# Create an empty list to store the rolling windows
+rolling_windows <- list()
+
+# Iterate over the data to create rolling windows
+for (i in 1:(nrow(daily_close) - window_size + 1)) {
+  start_index <- i
+  end_index <- i + window_size - 1
+  
+  # Extract the rolling window
+  rolling_window <- daily_close[start_index:end_index, , drop = FALSE]
+  
+  # Append the rolling window to the list
+  rolling_windows[[i]] <- rolling_window
+}
+
+# Create an empty data frame to store the correlation results
+correlation_df <- data.frame(Start_Date = as.Date(character()),
+                             End_Date = as.Date(character()),
+                             Correlation_Value = numeric(),
+                             stringsAsFactors = FALSE)
+
+# Compute correlations and store relevant information in the data frame
+for (i in 1:length(rolling_windows)) {
+  window <- rolling_windows[[i]]
+  correlation <- cor(window$Daily_Close, reference_df$Daily_Close)
+  
+  # Check if correlation exceeds the threshold
+  if (correlation > correlation_threshold) {
+    start_date <- index(window)[1]
+    end_date <- index(window)[nrow(window)]
+    
+    # Add the information to the correlation data frame
+    correlation_df <- rbind(correlation_df, data.frame(Start_Date = as.Date(start_date),
+                                                       End_Date = as.Date(end_date),
+                                                       Correlation_Value = correlation,
+                                                       stringsAsFactors = FALSE))
+  }
+}
+
+# Remove row names and rename the last column
+row.names(correlation_df) <- NULL
+colnames(correlation_df)[ncol(correlation_df)] <- "Correlation_Value"
+
+# Group the correlation_df by year and filter for the highest correlation range per year
+library(dplyr)
+correlation_df <- correlation_df %>%
+  mutate(Year = lubridate::year(Start_Date)) %>%
+  group_by(Year) %>%
+  filter(Correlation_Value == max(Correlation_Value))
+
+#  removing the last row because its fucking 1.0 duh
+correlation_df <- correlation_df[-nrow(correlation_df), ]
+
+# Print the updated correlation data frame
+print(correlation_df)
+# Get the start date and end date as date objects from the first row of correlation_df
+start_date <- as.Date(as.character(correlation_df$Start_Date[1]), origin = "1970-01-01")
+end_date <- as.Date(as.character(correlation_df$End_Date[1]), origin = "1970-01-01")
+
+
+library(lubridate)
+
+# Create an empty plot with specific x and y limits
+plot(NULL, xlim = c(0, 300), ylim = c(80, 150), xlab = "Days", ylab = "Indexed Values", main = "SPX Indexed Values")
+
+# Create an empty vector to store legend labels
+legend_labels <- c()
+
+for (i in 1:nrow(correlation_df)) {
+  # Get the start and end dates for each row
+  start_date <- as.Date(as.character(correlation_df$Start_Date[i]), origin = "1970-01-01")
+  end_date <- as.Date(as.character(correlation_df$End_Date[i]), origin = "1970-01-01")
+  
+  # Add 200 days to the end date
+  new_end_date <- end_date + days(200)
+  
+  # Specify the ticker symbol for S&P 500 (SPX)
+  ticker <- "^GSPC"
+  
+  # Set the start and end dates for the data
+  end_date <- new_end_date  # Use the new end date
+  
+  # Fetch the historical data from start date to new end date
+  getSymbols(ticker, src = "yahoo", from = start_date, to = end_date)
+  
+  spx_data <- GSPC
+  
+  spx_indexed <- as.data.frame(spx_data$GSPC.Adjusted)
+  # Convert spx_indexed from xts to data.frame
+  spx_df <- as.data.frame(spx_indexed)
+  
+  # Change row names to numeric values starting from 1
+  row.names(spx_df) <- seq_len(nrow(spx_df))
+  
+  # Calculate index values
+  index_values <- spx_df$GSPC.Adjusted / spx_df$GSPC.Adjusted[1] * 100
+  
+  # Add indexed values column to the data frame
+  spx_df$Indexed_Values <- index_values
+  
+  # Add legend label for this row
+  legend_labels <- c(legend_labels, paste("From", start_date, "to", new_end_date))
+  
+  # Plot the indexed values for each row
+  lines(spx_df$Indexed_Values, type = "l", col = i)
+}
+
+# Convert reference_df from xts to data frame
+reference_df <- as.data.frame(reference_df)
+
+# Change row names to numeric values starting from 1
+row.names(reference_df) <- seq_len(nrow(reference_df))
+
+# Calculate indexed values
+indexed_values <- reference_df$Daily_Close / reference_df$Daily_Close[1] * 100
+
+# Add indexed values column to the data frame
+reference_df$Indexed_Values <- indexed_values
+
+# Plot the indexed values for the reference line as solid and thicker
+lines(reference_df$Indexed_Values, type = "l", lwd = 2, col = i + 1)
+
+# Add legend label for the reference line
+legend_labels <- c(legend_labels, "Current: Last 200 Days")
+
+# Add legend
+legend("bottom", legend = legend_labels, col = 1:(nrow(correlation_df) + 1), lty = c(rep(1, nrow(correlation_df)), 1), lwd = c(rep(1, nrow(correlation_df)), 2), bty = "n", xjust = 0.5, yjust = 1.2, ncol = 2)
+
+```
+
+
