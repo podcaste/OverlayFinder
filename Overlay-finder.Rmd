@@ -26,7 +26,7 @@ colnames(daily_close) <- "Daily_Close"
 head(daily_close)
 
 # Parameters for correlation filter and window size
-correlation_threshold <- 0.92
+correlation_threshold <- 0.915
 window_size <- 200
 reference_size <- 200
 
