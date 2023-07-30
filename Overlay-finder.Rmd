@@ -1,3 +1,16 @@
+
+Window and cutoffs
+```{r}
+# Parameters for correlation filter and window size
+correlation_threshold <- 0.935
+window_size <- 214
+reference_size <- 214
+```
+
+
+
+```{r}
+
 # Install the required package if not already installed
 # install.packages("quantmod")
 
@@ -9,7 +22,7 @@ ticker <- "^GSPC"
 
 # Set the start and end dates for the data
 start_date <- as.Date("1928-01-01")
-end_date <- Sys.Date()  # Set it to the current date
+end_date <- Sys.Date() +1  # Set it to the current date +1 to account for quantmod not bringing in today's data
 
 # Fetch the historical data
 getSymbols(ticker, src = "yahoo", from = start_date, to = end_date)
@@ -21,10 +34,6 @@ colnames(daily_close) <- "Daily_Close"
 # Print the modified data
 head(daily_close)
 
-# Parameters for correlation filter and window size
-correlation_threshold <- 0.925
-window_size <- 210
-reference_size <- 210
 
 # Get the last rows from the daily_close data frame for reference
 reference_df <- tail(daily_close, reference_size)
@@ -189,3 +198,202 @@ legend_labels <- c(legend_labels, paste("Current: Last", window_size, "Days"))
 
 # Add legend
 legend("bottom", legend = legend_labels, col = 1:(nrow(correlation_df) + 1), lty = c(rep(1, nrow(correlation_df)), 1), lwd = c(rep(1, nrow(correlation_df)), 2), bty = "n", xjust = 0.5, yjust = 1.2, ncol = 2)
+
+```
+
+NDX Overlayor
+
+```{r}
+
+# Install the required package if not already installed
+# install.packages("quantmod")
+
+# Load the required library
+library(quantmod)
+
+# Specify the ticker symbol for S&P 500 (NDX)
+ticker <- "^IXIC"
+correlation_threshold <- 0.94
+
+# Set the start and end dates for the data
+start_date <- as.Date("1928-01-01")
+end_date <- Sys.Date() +1  # Set it to the current date +1 to account for quantmod not bringing in today's data
+
+# Fetch the historical data
+getSymbols(ticker, src = "yahoo", from = start_date, to = end_date)
+
+# Drop unnecessary columns and rename the column
+daily_close <- IXIC[, c("IXIC.Adjusted")]
+colnames(daily_close) <- "Daily_Close"
+
+# Print the modified data
+head(daily_close)
+
+
+
+# Get the last rows from the daily_close data frame for reference
+reference_df <- tail(daily_close, reference_size)
+#reference_df[nrow(reference_df)+1]<-c(4534.87, 117.07)
+
+# Print the reference data frame
+print(reference_df)
+
+# Create an empty list to store the rolling windows
+rolling_windows <- list()
+
+# Iterate over the data to create rolling windows
+for (i in 1:(nrow(daily_close) - window_size + 1)) {
+  start_index <- i
+  end_index <- i + window_size - 1
+  
+  # Extract the rolling window
+  rolling_window <- daily_close[start_index:end_index, , drop = FALSE]
+  
+  # Append the rolling window to the list
+  rolling_windows[[i]] <- rolling_window
+}
+
+# Create an empty data frame to store the correlation results
+correlation_df <- data.frame(Start_Date = as.Date(character()),
+                             End_Date = as.Date(character()),
+                             Correlation_Value = numeric(),
+                             stringsAsFactors = FALSE)
+
+# Compute correlations and store relevant information in the data frame
+for (i in 1:length(rolling_windows)) {
+  window <- rolling_windows[[i]]
+  correlation <- cor(window$Daily_Close, reference_df$Daily_Close)
+  
+  # Check if correlation exceeds the threshold
+  if (correlation > correlation_threshold) {
+    start_date <- index(window)[1]
+    end_date <- index(window)[nrow(window)]
+    
+    # Add the information to the correlation data frame
+    correlation_df <- rbind(correlation_df, data.frame(Start_Date = as.Date(start_date),
+                                                       End_Date = as.Date(end_date),
+                                                       Correlation_Value = correlation,
+                                                       stringsAsFactors = FALSE))
+  }
+}
+
+# Remove row names and rename the last column
+row.names(correlation_df) <- NULL
+colnames(correlation_df)[ncol(correlation_df)] <- "Correlation_Value"
+
+# Group the correlation_df by year and filter for the highest correlation range per year
+library(dplyr)
+correlation_df <- correlation_df %>%
+  mutate(Year = lubridate::year(Start_Date)) %>%
+  group_by(Year) %>%
+  filter(Correlation_Value == max(Correlation_Value))
+
+#  removing the last row because its fucking 1.0 duh
+correlation_df <- correlation_df[-nrow(correlation_df), ]
+
+# Print the updated correlation data frame
+print(correlation_df)
+# Get the start date and end date as date objects from the first row of correlation_df
+start_date <- as.Date(as.character(correlation_df$Start_Date[1]), origin = "1970-01-01")
+end_date <- as.Date(as.character(correlation_df$End_Date[1]), origin = "1970-01-01")
+
+
+library(lubridate)
+
+# Get today's date
+today_date <- format(Sys.Date(), format = "%Y-%m-%d")
+
+# Create an empty plot with specific x and y limits
+plot(NULL, xlim = c(0, window_size*2), ylim = c(80, 200), xlab = "Days", ylab = "Indexed Values", main = paste("NDX OVERLAAAAYYYYOOOOOR : Generated:", today_date))
+
+# Create an empty vector to store legend labels
+legend_labels <- c()
+
+for (i in 1:nrow(correlation_df)) {
+  # Get the start and end dates for each row
+  start_date <- as.Date(as.character(correlation_df$Start_Date[i]), origin = "1970-01-01")
+  end_date <- as.Date(as.character(correlation_df$End_Date[i]), origin = "1970-01-01")
+  
+  # Add 200 days to the end date
+  new_end_date <- end_date + days(window_size)+days(reference_size)
+  
+  # Specify the ticker symbol for S&P 500 (NDX)
+  ticker <- "^IXIC"
+  
+  # Set the start and end dates for the data
+  end_date <- new_end_date  # Use the new end date
+  
+  # Fetch the historical data from start date to new end date
+  getSymbols(ticker, src = "yahoo", from = start_date, to = end_date)
+  
+  NDX_data <- IXIC
+  
+  NDX_indexed <- as.data.frame(NDX_data$IXIC.Adjusted)
+  # Convert NDX_indexed from xts to data.frame
+  NDX_df <- as.data.frame(NDX_indexed)
+  
+  # Change row names to numeric values starting from 1
+  row.names(NDX_df) <- seq_len(nrow(NDX_df))
+  
+  # Calculate index values
+  index_values <- NDX_df$IXIC.Adjusted / NDX_df$IXIC.Adjusted[1] * 100
+  
+  # Add indexed values column to the data frame
+  NDX_df$Indexed_Values <- index_values
+  
+  # Add legend label for this row
+  legend_labels <- c(legend_labels, paste("From", start_date, "to", new_end_date))
+  
+  # Plot the indexed values for each row
+  lines(NDX_df$Indexed_Values, type = "l", col = i)
+  line_value <- NDX_df$Indexed_Values[reference_size]
+  abline(h = line_value, col = "gray", lty = "dashed")
+  # Get the last day's price for each row
+  last_day_price <- NDX_df$Indexed_Values[nrow(NDX_df)]
+  # Add text for the value of Indexed_Values to the right and above the line
+  #text(x = nrow(NDX_df), y = line_value, labels = sprintf("%.2f", line_value), pos = 4, col = "green")
+  #text(x = 0, y = line_value, labels = sprintf("%.2f", last_day_price), pos = 4, col = "red")
+
+
+}
+
+# Convert reference_df from xts to data frame
+reference_df <- as.data.frame(reference_df)
+
+# Change row names to numeric values starting from 1
+row.names(reference_df) <- seq_len(nrow(reference_df))
+
+# Calculate indexed values
+indexed_values <- reference_df$Daily_Close / reference_df$Daily_Close[1] * 100
+
+# Add indexed values column to the data frame
+reference_df$Indexed_Values <- indexed_values
+
+# Plot the indexed values for the reference line as solid and thicker
+lines(reference_df$Indexed_Values, type = "l", lwd = 2, col = i + 1)
+abline(v = nrow(reference_df), col = "red", lty = "dashed")
+# Plot the indexed values for the reference line as solid and thicker
+lines(reference_df$Indexed_Values, type = "l", lwd = 2, col = i + 1)
+
+# Add a horizontal line for the current price of the reference series
+current_price <- reference_df$Indexed_Values[nrow(reference_df)]
+abline(h = current_price, col = "blue", lty = "dashed")
+
+text(x = 0, y = current_price+2, labels = sprintf("%.2f", current_price), pos = 2, col = "blue")
+# Add gray dashed vertical lines every 10 days
+num_days <- nrow(NDX_df)
+num_lines <- num_days %/% 10  # Number of lines to be added
+
+for (j in 1:num_lines) {
+  line_position <- j * 10
+  abline(v = line_position, col = "gray", lty = "dashed")
+}
+
+# Add legend label for the reference line
+legend_labels <- c(legend_labels, paste("Current: Last", window_size, "Days"))
+
+# Add legend
+legend("bottom", legend = legend_labels, col = 1:(nrow(correlation_df) + 1), lty = c(rep(1, nrow(correlation_df)), 1), lwd = c(rep(1, nrow(correlation_df)), 2), bty = "n", xjust = 0.5, yjust = 1.2, ncol = 2)
+
+```
+
